@@ -1,194 +1,147 @@
-#!/usr/bin/env python3
 """
-8-Puzzle solver with A* search -- Task 1, Introduction to AI and Data Science.
+Task 1 - 8-Puzzle with A* search
+Introduction to AI and Data Science
 
-The script
-  1. generates random start states,
-  2. checks each of them for solvability,
-  3. solves the solvable ones with A* using two heuristics
-     and prints the solution of one example move by move
-     (Hamming = misplaced tiles, Manhattan = sum of tile distances),
-  4. measures memory effort (number of expanded nodes) and run time,
-  5. prints mean and standard deviation for each heuristic.
+The program creates random start states, checks if they are solvable and
+solves them with A* using two heuristics:
+    h1 = Hamming distance (number of misplaced tiles)
+    h2 = Manhattan distance (sum of the distances of all tiles to their goal)
+For both heuristics the number of expanded nodes (memory effort) and the
+run time are measured. At the end mean and standard deviation are printed.
 
-Usage:
-    python puzzle8.py                 # 100 random puzzles, seed 42
-    python puzzle8.py --n 100 --seed 7 --csv results.csv
-    python puzzle8.py --start 724506831   # show the solution of an own state
-    python puzzle8.py --no-steps          # only the statistics
+Parts of the program:
+    1. puzzle functions (goal state, moves, printing)
+    2. solvability check
+    3. heuristics
+    4. A* search
+    5. experiment and statistics
+    6. main program
 
-Software structure (one section per submodule):
-    1. Puzzle model     - state representation, goal state, successor function,
-                          text output of states and solutions
-    2. Solvability      - inversion count / parity check
-    3. Heuristics       - Hamming and Manhattan
-    4. Search           - A* algorithm
-    5. Experiment       - random states, measurements for each heuristic
-    6. Statistics       - mean / standard deviation, effective branching factor
-    7. Main             - command line interface and report output
-
-State representation:
-    A state is a tuple of 9 integers in row-major order, 0 is the blank.
-    Example: (7, 2, 4, 5, 0, 6, 8, 3, 1) is the board
-        7 2 4
-        5 _ 6
-        8 3 1
-    Tuples are immutable and hashable, so they can be used directly as
-    dictionary keys / set members in the search.
+A state is stored as a tuple with 9 numbers (row by row), 0 is the blank.
+Example: (7, 2, 4, 5, 0, 6, 8, 3, 1) means
+    7 2 4
+    5 _ 6
+    8 3 1
 """
 
-import argparse
 import csv
 import heapq
 import random
 import statistics
 import time
 
-# =============================================================================
-# 1. PUZZLE MODEL
-# =============================================================================
+# settings
+NUMBER_OF_PUZZLES = 100
+SEED = 42                  # same seed -> same random puzzles
+EXAMPLE_START = None       # own example, e.g. (7, 2, 4, 5, 0, 6, 8, 3, 1)
+CSV_FILE = "results.csv"   # None = don't save the results
 
-SIZE = 3                    # board is SIZE x SIZE
-N_CELLS = SIZE * SIZE       # 9 cells, tiles 1..8 plus the blank (0)
 
+# ---------------------------------------------------------------------------
+# 1. Puzzle functions
+# ---------------------------------------------------------------------------
 
-def generate_goal_state():
+def get_goal_state():
     """
-    Function: Builds the goal state used in the lecture (blank in the top-left
-              corner, tiles in ascending order).
-    Input:    none
-    Output:   tuple of 9 ints -> (0, 1, 2, 3, 4, 5, 6, 7, 8)
+    Function: returns the goal state from the lecture (blank top left)
+    Input:    -
+    Output:   tuple (0, 1, 2, 3, 4, 5, 6, 7, 8)
     """
-    return tuple(range(N_CELLS))
-
-
-def build_neighbor_table():
-    """
-    Function: Precomputes, for every blank position, the positions the blank
-              can move to (up, down, left, right). Computing this once saves
-              time because the successor function is called very often.
-    Input:    none
-    Output:   list of 9 tuples; entry i holds the indices adjacent to cell i
-    """
-    table = []
-    for index in range(N_CELLS):
-        row, col = divmod(index, SIZE)
-        neighbors = []
-        if row > 0:
-            neighbors.append(index - SIZE)      # blank moves up
-        if row < SIZE - 1:
-            neighbors.append(index + SIZE)      # blank moves down
-        if col > 0:
-            neighbors.append(index - 1)         # blank moves left
-        if col < SIZE - 1:
-            neighbors.append(index + 1)         # blank moves right
-        table.append(tuple(neighbors))
-    return table
-
-
-NEIGHBORS = build_neighbor_table()
+    return (0, 1, 2, 3, 4, 5, 6, 7, 8)
 
 
 def get_successors(state):
     """
-    Function: Transition model. Generates all states reachable with one move
-              (sliding one tile into the blank). Every move has cost 1.
-    Input:    state - tuple of 9 ints
-    Output:   list of successor states (2 to 4 tuples of 9 ints)
+    Function: creates all states that can be reached with one move.
+              The blank is swapped with the tile above, below, left or right.
+              Every move costs 1.
+    Input:    state (tuple with 9 numbers)
+    Output:   list of successor states (2 to 4 states)
     """
     blank = state.index(0)
+    row = blank // 3
+    col = blank % 3
+
+    # positions the blank can move to
+    moves = []
+    if row > 0:
+        moves.append(blank - 3)  # up
+    if row < 2:
+        moves.append(blank + 3)  # down
+    if col > 0:
+        moves.append(blank - 1)  # left
+    if col < 2:
+        moves.append(blank + 1)  # right
+
     successors = []
-    for target in NEIGHBORS[blank]:
-        cells = list(state)
-        cells[blank], cells[target] = cells[target], cells[blank]
-        successors.append(tuple(cells))
+    for new_pos in moves:
+        new_state = list(state)
+        new_state[blank] = new_state[new_pos]
+        new_state[new_pos] = 0
+        successors.append(tuple(new_state))
     return successors
 
 
-def generate_random_state(rng):
+def random_state(rng):
     """
-    Function: Creates a random permutation of the 9 cells. About half of all
-              permutations are NOT solvable, therefore the result has to be
-              checked with is_solvable() before searching.
-    Input:    rng - random.Random instance (allows reproducible experiments)
-    Output:   tuple of 9 ints (random state, possibly unsolvable)
+    Function: creates a random state by shuffling the numbers 0-8.
+              About half of these states are not solvable, so the state
+              has to be checked with is_solvable() first.
+    Input:    rng (random.Random object)
+    Output:   tuple with 9 numbers
     """
-    cells = list(range(N_CELLS))
-    rng.shuffle(cells)
-    return tuple(cells)
+    numbers = list(range(9))
+    rng.shuffle(numbers)
+    return tuple(numbers)
 
 
-def format_state(state):
+def print_state(state):
     """
-    Function: Turns a state into a readable 3x3 text block.
-    Input:    state - tuple of 9 ints
-    Output:   string with 3 lines, blank shown as '_'
+    Function: prints a state as 3x3 board, the blank is shown as _
+    Input:    state
+    Output:   - (prints to console)
     """
-    lines = []
-    for row in range(SIZE):
-        cells = state[row * SIZE:(row + 1) * SIZE]
-        lines.append(" ".join("_" if c == 0 else str(c) for c in cells))
-    return "\n".join(lines)
-
-
-def describe_move(before, after):
-    """
-    Function: Describes the move that leads from one state to the next one in
-              words, seen from the tile that slides into the blank.
-    Input:    before - state before the move, after - state after the move
-    Output:   string such as "tile 5 moves right"
-    """
-    blank_before = before.index(0)
-    blank_after = after.index(0)
-    tile = before[blank_after]          # this tile slides into the blank
-    step = blank_before - blank_after   # direction of the tile on the board
-    direction = {-SIZE: "up", SIZE: "down", -1: "left", 1: "right"}[step]
-    return f"tile {tile} moves {direction}"
+    for row in range(3):
+        line = ""
+        for col in range(3):
+            tile = state[row * 3 + col]
+            if tile == 0:
+                line += "_ "
+            else:
+                line += str(tile) + " "
+        print(line.strip())
 
 
 def print_solution(path):
     """
-    Function: Prints a solution move by move. Every step shows the move in
-              words and the board after that move, so the way from the start
-              state to the goal state can be followed (and replayed by hand).
-    Input:    path - list of states from start to goal (output of a_star)
-    Output:   none (text on the console)
+    Function: prints the solution step by step. For every step the moved
+              tile and the board after the move are shown.
+    Input:    path (list of states from start to goal)
+    Output:   - (prints to console)
     """
     print("Start:")
-    print(format_state(path[0]))
-    for number in range(1, len(path)):
-        move = describe_move(path[number - 1], path[number])
-        print(f"\nStep {number} of {len(path) - 1}: {move}")
-        print(format_state(path[number]))
-    print(f"\nGoal reached after {len(path) - 1} moves.")
+    print_state(path[0])
+    for i in range(1, len(path)):
+        # the moved tile is now where the blank was before
+        moved_tile = path[i][path[i - 1].index(0)]
+        print("\nStep", i, "- move tile", moved_tile)
+        print_state(path[i])
+    print("\nGoal reached in", len(path) - 1, "moves")
 
 
-def parse_state(text):
-    """
-    Function: Converts a user input like "724506831" into a state and checks
-              that it contains every digit 0..8 exactly once.
-    Input:    text - string of 9 digits, 0 is the blank
-    Output:   tuple of 9 ints; raises ValueError for invalid input
-    """
-    if len(text) != N_CELLS or sorted(text) != [str(d) for d in range(N_CELLS)]:
-        raise ValueError("start state must contain the digits 0-8 exactly "
-                         "once, e.g. 724506831")
-    return tuple(int(character) for character in text)
-
-
-# =============================================================================
-# 2. SOLVABILITY CHECK
-# =============================================================================
+# ---------------------------------------------------------------------------
+# 2. Solvability check
+# ---------------------------------------------------------------------------
 
 def count_inversions(state):
     """
-    Function: Counts the inversions of a state. An inversion is a pair of
-              tiles (a, b) where a appears before b but a > b. The blank is
-              ignored.
-    Input:    state - tuple of 9 ints
-    Output:   int, number of inversions (0..28)
+    Function: counts the inversions of a state. An inversion is a pair of
+              tiles where the bigger number comes before the smaller one.
+              The blank (0) is not counted.
+    Input:    state
+    Output:   number of inversions
     """
-    tiles = [tile for tile in state if tile != 0]
+    tiles = [t for t in state if t != 0]
     inversions = 0
     for i in range(len(tiles)):
         for j in range(i + 1, len(tiles)):
@@ -199,438 +152,247 @@ def count_inversions(state):
 
 def is_solvable(state, goal):
     """
-    Function: Decides whether the goal can be reached from the state.
-              On a board with odd width a move never changes the parity of the
-              inversion count: a horizontal move changes nothing, a vertical
-              move jumps a tile over exactly 2 others (change of -2, 0 or +2).
-              So a state is solvable exactly when its inversion parity equals
-              the inversion parity of the goal.
-    Input:    state - tuple of 9 ints, goal - tuple of 9 ints
-    Output:   True if solvable, False otherwise
+    Function: checks if the goal can be reached from the state.
+              On a 3x3 board a move never changes whether the number of
+              inversions is even or odd (horizontal move: no change,
+              vertical move: the tile jumps over 2 other tiles, so the
+              number changes by -2, 0 or +2). That means the state is
+              solvable if it has the same parity as the goal.
+    Input:    state, goal
+    Output:   True or False
     """
     return count_inversions(state) % 2 == count_inversions(goal) % 2
 
 
-# =============================================================================
-# 3. HEURISTICS
-# =============================================================================
-# Both heuristics are admissible (they never overestimate the true cost), so
-# A* finds an optimal solution with either of them. Manhattan >= Hamming for
-# every state, i.e. Manhattan dominates Hamming.
+# ---------------------------------------------------------------------------
+# 3. Heuristics
+# ---------------------------------------------------------------------------
+# Both heuristics never overestimate the real number of moves (admissible),
+# so A* finds the optimal solution with both of them.
 
-def build_distance_table(goal):
+def hamming(state, goal):
     """
-    Function: Precomputes the Manhattan distance of every tile from every
-              board position to its goal position. Turns the heuristic into
-              simple table look-ups.
-    Input:    goal - tuple of 9 ints
-    Output:   9x9 list; table[tile][position] = horizontal + vertical distance
+    Function: heuristic h1, counts the tiles that are not on their goal
+              position (the blank is not counted)
+    Input:    state, goal
+    Output:   number of misplaced tiles
     """
-    table = [[0] * N_CELLS for _ in range(N_CELLS)]
-    for tile in range(1, N_CELLS):
-        goal_row, goal_col = divmod(goal.index(tile), SIZE)
-        for position in range(N_CELLS):
-            row, col = divmod(position, SIZE)
-            table[tile][position] = abs(row - goal_row) + abs(col - goal_col)
-    return table
+    count = 0
+    for i in range(9):
+        if state[i] != 0 and state[i] != goal[i]:
+            count += 1
+    return count
 
 
-def make_hamming(goal):
+def manhattan(state, goal):
     """
-    Function: Creates the Hamming heuristic h1 for a given goal.
-              h1(n) = number of tiles that are not on their goal position
-              (relaxed problem: a tile may jump to any square in one move).
-    Input:    goal - tuple of 9 ints
-    Output:   function h(state) -> int
+    Function: heuristic h2, sum of the horizontal and vertical distances
+              of every tile to its goal position (the blank is not counted)
+    Input:    state, goal
+    Output:   sum of the distances
     """
-    def hamming(state):
-        misplaced = 0
-        for position in range(N_CELLS):
-            tile = state[position]
-            if tile != 0 and tile != goal[position]:
-                misplaced += 1
-        return misplaced
-    return hamming
+    distance = 0
+    for i in range(9):
+        tile = state[i]
+        if tile != 0:
+            goal_pos = goal.index(tile)
+            distance += abs(i // 3 - goal_pos // 3) + abs(i % 3 - goal_pos % 3)
+    return distance
 
 
-def make_manhattan(goal):
-    """
-    Function: Creates the Manhattan heuristic h2 for a given goal.
-              h2(n) = sum of horizontal + vertical distances of all tiles to
-              their goal positions (relaxed problem: a tile may move to an
-              adjacent square even if it is occupied).
-    Input:    goal - tuple of 9 ints
-    Output:   function h(state) -> int
-    """
-    table = build_distance_table(goal)
-
-    def manhattan(state):
-        distance = 0
-        for position in range(N_CELLS):
-            tile = state[position]
-            if tile != 0:
-                distance += table[tile][position]
-        return distance
-    return manhattan
-
-
-# =============================================================================
-# 4. SEARCH (A*)
-# =============================================================================
-
-def reconstruct_path(parents, state):
-    """
-    Function: Follows the parent links back from the goal to the start.
-    Input:    parents - dict {state: parent state or None}, state - goal state
-    Output:   list of states from start to goal (inclusive)
-    """
-    path = []
-    while state is not None:
-        path.append(state)
-        state = parents[state]
-    path.reverse()
-    return path
-
+# ---------------------------------------------------------------------------
+# 4. A* search
+# ---------------------------------------------------------------------------
 
 def a_star(start, goal, heuristic):
     """
-    Function: A* search. Always expands the frontier node with the smallest
-              f(n) = g(n) + h(n), where g(n) is the path cost from the start
-              and h(n) the heuristic estimate to the goal.
-    Input:    start     - tuple of 9 ints (must be solvable)
-              goal      - tuple of 9 ints
-              heuristic - function h(state) -> int (admissible)
-    Output:   dict with
-                path      - list of states from start to goal
-                moves     - solution length (number of moves)
-                expanded  - number of expanded nodes (memory effort measure)
-                generated - number of nodes put on the frontier
-                stored    - number of distinct states kept in memory at the end
-              or None if no solution exists.
+    Function: A* search. Always expands the node with the lowest
+              f(n) = g(n) + h(n)  (g = moves so far, h = heuristic).
+    Input:    start, goal, heuristic (hamming or manhattan)
+    Output:   (path, expanded)
+              path = list of states from start to goal (None if no solution)
+              expanded = number of expanded nodes
     """
-    # Frontier entries: (f, h, counter, g, state).
-    # Ties in f are broken by smaller h (prefer nodes closer to the goal),
-    # then by insertion order, so states themselves are never compared.
-    counter = 0
-    start_h = heuristic(start)
-    frontier = [(start_h, start_h, counter, 0, start)]
-
-    best_g = {start: 0}         # cheapest known path cost for every seen state
-    parents = {start: None}     # for path reconstruction
-    closed = set()              # states that were already expanded
+    # entries in the open list: (f, h, g, state)
+    # if two nodes have the same f, the one with the smaller h is taken first
+    h_start = heuristic(start, goal)
+    open_list = [(h_start, h_start, 0, start)]
+    g_costs = {start: 0}
+    parents = {start: None}
+    closed = set()
     expanded = 0
-    generated = 1
 
-    while frontier:
-        _, _, _, g, state = heapq.heappop(frontier)
+    while open_list:
+        f, h, g, state = heapq.heappop(open_list)
 
+        # a state can be in the open list more than once,
+        # so skip it if it was already expanded
         if state in closed:
-            continue            # outdated duplicate entry, already expanded
+            continue
 
         if state == goal:
-            path = reconstruct_path(parents, state)
-            return {
-                "path": path,
-                "moves": len(path) - 1,
-                "expanded": expanded,
-                "generated": generated,
-                "stored": len(best_g),
-            }
+            # follow the parents back to the start to get the path
+            path = []
+            while state is not None:
+                path.append(state)
+                state = parents[state]
+            path.reverse()
+            return path, expanded
 
         closed.add(state)
         expanded += 1
 
-        for successor in get_successors(state):
+        for next_state in get_successors(state):
             new_g = g + 1
-            if successor in best_g and best_g[successor] <= new_g:
-                continue        # we already know a path that is at least as good
-            best_g[successor] = new_g
-            parents[successor] = state
-            h = heuristic(successor)
-            counter += 1
-            heapq.heappush(frontier, (new_g + h, h, counter, new_g, successor))
-            generated += 1
+            # only add the state if it is new or we found a shorter way to it
+            if next_state not in g_costs or new_g < g_costs[next_state]:
+                g_costs[next_state] = new_g
+                parents[next_state] = state
+                new_h = heuristic(next_state, goal)
+                heapq.heappush(open_list, (new_g + new_h, new_h, new_g, next_state))
 
-    return None
+    return None, expanded
 
 
-# =============================================================================
-# 5. EXPERIMENT
-# =============================================================================
+# ---------------------------------------------------------------------------
+# 5. Experiment and statistics
+# ---------------------------------------------------------------------------
 
-def generate_solvable_states(count, goal, rng):
+def create_puzzles(n, goal, rng):
     """
-    Function: Draws random states until 'count' solvable ones are found.
-              Unsolvable states are counted and discarded.
-    Input:    count - number of solvable states wanted
-              goal  - tuple of 9 ints
-              rng   - random.Random instance
-    Output:   (list of solvable states, number of rejected unsolvable states)
+    Function: creates n random solvable start states. Unsolvable states
+              are thrown away and counted.
+    Input:    n, goal, rng
+    Output:   (list of start states, number of unsolvable states)
     """
-    states = []
-    rejected = 0
-    while len(states) < count:
-        state = generate_random_state(rng)
+    puzzles = []
+    unsolvable = 0
+    while len(puzzles) < n:
+        state = random_state(rng)
         if is_solvable(state, goal):
-            states.append(state)
+            puzzles.append(state)
         else:
-            rejected += 1
-    return states, rejected
+            unsolvable += 1
+    return puzzles, unsolvable
 
 
-def run_experiment(states, goal, heuristics):
+def run_experiment(puzzles, goal, heuristics):
     """
-    Function: Solves every start state with every heuristic and records the
-              measurements. All heuristics get the SAME start states, so the
-              comparison is fair.
-    Input:    states     - list of solvable start states
-              goal       - tuple of 9 ints
-              heuristics - dict {name: heuristic function}
-    Output:   list of dicts, one per (puzzle, heuristic), with keys
-              puzzle, start, heuristic, moves, expanded, generated, stored,
-              time_s
+    Function: solves every puzzle with every heuristic and measures the
+              expanded nodes and the run time. Both heuristics get the same
+              puzzles, so the comparison is fair.
+    Input:    puzzles, goal, heuristics (dict: name -> function)
+    Output:   list of results (one dict per puzzle and heuristic)
     """
-    records = []
-    for number, start in enumerate(states, start=1):
+    results = []
+    for i, start in enumerate(puzzles):
+        moves_per_heuristic = []
         for name, heuristic in heuristics.items():
-            begin = time.perf_counter()
-            result = a_star(start, goal, heuristic)
-            elapsed = time.perf_counter() - begin
-            records.append({
-                "puzzle": number,
-                "start": "".join(str(c) for c in start),
+            t_start = time.perf_counter()
+            path, expanded = a_star(start, goal, heuristic)
+            t_end = time.perf_counter()
+
+            moves = len(path) - 1
+            moves_per_heuristic.append(moves)
+            results.append({
+                "puzzle": i + 1,
                 "heuristic": name,
-                "moves": result["moves"],
-                "expanded": result["expanded"],
-                "generated": result["generated"],
-                "stored": result["stored"],
-                "time_s": elapsed,
+                "moves": moves,
+                "expanded": expanded,
+                "time_ms": (t_end - t_start) * 1000,
             })
-    return records
+
+        # both heuristics are admissible, so both solutions must be equally long
+        if len(set(moves_per_heuristic)) > 1:
+            print("Warning: different solution lengths for puzzle", i + 1)
+
+        if (i + 1) % 10 == 0:
+            print(i + 1, "of", len(puzzles), "puzzles solved")
+    return results
 
 
-def check_optimality(records, heuristics):
+def print_statistics(results, heuristics):
     """
-    Function: Sanity test. Both heuristics are admissible, so they must find
-              solutions of identical (optimal) length for the same puzzle.
-    Input:    records    - output of run_experiment
-              heuristics - dict {name: heuristic function}
-    Output:   number of puzzles where the solution lengths differ (expected 0)
+    Function: prints mean and standard deviation of the expanded nodes,
+              the run time and the solution length for every heuristic
+    Input:    results, heuristics
+    Output:   - (prints to console)
     """
-    lengths = {}
-    for record in records:
-        lengths.setdefault(record["puzzle"], set()).add(record["moves"])
-    return sum(1 for moves in lengths.values() if len(moves) > 1)
+    for name in heuristics:
+        expanded = [r["expanded"] for r in results if r["heuristic"] == name]
+        times = [r["time_ms"] for r in results if r["heuristic"] == name]
+        moves = [r["moves"] for r in results if r["heuristic"] == name]
+
+        print("\n" + name + ":")
+        print(f"  expanded nodes:  mean = {statistics.mean(expanded):10.1f}"
+              f"   std = {statistics.stdev(expanded):10.1f}")
+        print(f"  run time [ms]:   mean = {statistics.mean(times):10.1f}"
+              f"   std = {statistics.stdev(times):10.1f}")
+        print(f"  solution length: mean = {statistics.mean(moves):10.1f}"
+              f"   std = {statistics.stdev(moves):10.1f}")
 
 
-# =============================================================================
-# 6. STATISTICS
-# =============================================================================
-
-def effective_branching_factor(generated, depth):
+def save_csv(results, filename):
     """
-    Function: Estimates the effective branching factor b*. b* is the branching
-              factor a uniform tree of the given depth would need in order to
-              contain N + 1 nodes:  N + 1 = 1 + b* + (b*)^2 + ... + (b*)^d.
-              Solved numerically by bisection.
-    Input:    generated - N, number of nodes generated by the search
-              depth     - d, solution length
-    Output:   float b* (0.0 if depth is 0)
+    Function: saves all measurements in a csv file (for the diagrams)
+    Input:    results, filename
+    Output:   - (creates the file)
     """
-    if depth == 0:
-        return 0.0
-    target = generated + 1
-
-    def tree_size(b):
-        return sum(b ** level for level in range(depth + 1))
-
-    low, high = 1.0, float(max(generated, 2))
-    for _ in range(100):
-        middle = (low + high) / 2
-        if tree_size(middle) < target:
-            low = middle
-        else:
-            high = middle
-    return (low + high) / 2
-
-
-def summarize(records, name):
-    """
-    Function: Computes mean and (sample) standard deviation of the
-              measurements of one heuristic.
-    Input:    records - output of run_experiment
-              name    - heuristic name to summarize
-    Output:   dict {measure: (mean, standard deviation)} for the measures
-              expanded, generated, stored, time_ms, moves, b_star
-    """
-    rows = [r for r in records if r["heuristic"] == name]
-    series = {
-        "expanded": [r["expanded"] for r in rows],
-        "generated": [r["generated"] for r in rows],
-        "stored": [r["stored"] for r in rows],
-        "time_ms": [r["time_s"] * 1000 for r in rows],
-        "moves": [r["moves"] for r in rows],
-        "b_star": [effective_branching_factor(r["generated"], r["moves"])
-                   for r in rows if r["moves"] > 0],
-    }
-    summary = {}
-    for measure, values in series.items():
-        mean = statistics.mean(values)
-        deviation = statistics.stdev(values) if len(values) > 1 else 0.0
-        summary[measure] = (mean, deviation)
-    return summary
-
-
-def print_report(summaries, puzzle_count, rejected, mismatches):
-    """
-    Function: Prints the comparison table of all heuristics.
-    Input:    summaries    - dict {heuristic name: output of summarize}
-              puzzle_count - number of solved puzzles
-              rejected     - number of discarded unsolvable random states
-              mismatches   - output of check_optimality
-    Output:   none (text on the console)
-    """
-    labels = [
-        ("expanded", "Expanded nodes (memory effort)"),
-        ("generated", "Generated nodes"),
-        ("stored", "States stored in memory"),
-        ("time_ms", "Run time [ms]"),
-        ("moves", "Solution length [moves]"),
-        ("b_star", "Effective branching factor b*"),
-    ]
-    names = list(summaries)
-
-    print(f"\nSolved puzzles: {puzzle_count}   "
-          f"(unsolvable random states discarded: {rejected})")
-    print(f"Puzzles with different solution length per heuristic: {mismatches}"
-          f"   (0 = all solutions optimal)\n")
-
-    header = f"{'Measure (mean +/- std)':<32}"
-    for name in names:
-        header += f"{name:>26}"
-    print(header)
-    print("-" * len(header))
-    for measure, label in labels:
-        line = f"{label:<32}"
-        for name in names:
-            mean, deviation = summaries[name][measure]
-            line += f"{f'{mean:,.2f} +/- {deviation:,.2f}':>26}"
-        print(line)
-
-    if len(names) == 2:
-        first, second = names
-        ratio_nodes = (summaries[first]["expanded"][0]
-                       / summaries[second]["expanded"][0])
-        ratio_time = (summaries[first]["time_ms"][0]
-                      / summaries[second]["time_ms"][0])
-        print(f"\n{first} expands {ratio_nodes:.1f}x as many nodes and needs "
-              f"{ratio_time:.1f}x the run time of {second}.")
-
-
-def write_csv(records, filename):
-    """
-    Function: Saves the raw measurements, e.g. for diagrams in the report.
-    Input:    records  - output of run_experiment
-              filename - path of the CSV file to create
-    Output:   none (file on disk)
-    """
-    with open(filename, "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(records[0].keys()))
+    with open(filename, "w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=results[0].keys())
         writer.writeheader()
-        writer.writerows(records)
+        writer.writerows(results)
 
 
-# =============================================================================
-# 7. MAIN
-# =============================================================================
-
-def parse_arguments():
-    """
-    Function: Reads the command line options.
-    Input:    none (uses sys.argv)
-    Output:   argparse.Namespace with n, seed, csv, start, no_steps
-    """
-    parser = argparse.ArgumentParser(description="8-puzzle: A* with Hamming "
-                                                 "and Manhattan heuristic")
-    parser.add_argument("--n", type=int, default=100,
-                        help="number of random solvable start states")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="random seed (same seed = same puzzles)")
-    parser.add_argument("--csv", default=None,
-                        help="optional file name for the raw measurements")
-    parser.add_argument("--start", default=None,
-                        help="own start state for the example, 9 digits with "
-                             "0 as blank, e.g. 724506831")
-    parser.add_argument("--no-steps", action="store_true",
-                        help="do not print the solution of the example "
-                             "move by move")
-    return parser.parse_args()
-
+# ---------------------------------------------------------------------------
+# 6. Main program
+# ---------------------------------------------------------------------------
 
 def main():
     """
-    Function: Runs the whole task: goal state, one worked example with its
-              solution move by move, the experiment with n random states and
-              the final report.
-    Input:    none
-    Output:   none (text on the console, optional CSV file)
+    Function: shows one example with its solution, then runs the experiment
+              with the random puzzles and prints the statistics
+    Input:    - (uses the settings at the top)
+    Output:   - (prints to console, optional csv file)
     """
-    args = parse_arguments()
-    rng = random.Random(args.seed)
-
-    goal = generate_goal_state()
-    heuristics = {
-        "Hamming": make_hamming(goal),
-        "Manhattan": make_manhattan(goal),
-    }
+    rng = random.Random(SEED)
+    goal = get_goal_state()
+    heuristics = {"Hamming": hamming, "Manhattan": manhattan}
 
     print("Goal state:")
-    print(format_state(goal))
+    print_state(goal)
 
-    # --- one worked example -------------------------------------------------
-    if args.start:
-        try:
-            example = parse_state(args.start)
-        except ValueError as error:
-            print(f"\nInvalid --start value: {error}")
-            return
+    # example puzzle
+    if EXAMPLE_START is not None:
+        example = EXAMPLE_START
     else:
-        example = generate_solvable_states(1, goal, rng)[0][0]
+        example = create_puzzles(1, goal, rng)[0][0]
 
     print("\nExample start state:")
-    print(format_state(example))
-    solvable = is_solvable(example, goal)
-    print(f"Inversions: {count_inversions(example)}  ->  solvable: {solvable}")
-    if not solvable:
-        print("This state cannot reach the goal, so there is nothing to "
-              "search. Choose another start state.")
-        return
+    print_state(example)
+    print("Inversions:", count_inversions(example))
 
-    solution = None
-    for name, heuristic in heuristics.items():
-        result = a_star(example, goal, heuristic)
-        solution = result["path"]
-        print(f"  {name:<10} h(start) = {heuristic(example):>2}, "
-              f"solution = {result['moves']} moves, "
-              f"expanded nodes = {result['expanded']}")
+    if not is_solvable(example, goal):
+        print("This state is not solvable, so there is no solution.")
+    else:
+        for name, heuristic in heuristics.items():
+            path, expanded = a_star(example, goal, heuristic)
+            print(f"{name}: h(start) = {heuristic(example, goal)}, "
+                  f"{len(path) - 1} moves, {expanded} expanded nodes")
+        print("\nSolution:")
+        print_solution(path)
 
-    if not args.no_steps:
-        print("\nSolution of the example, move by move:")
-        print_solution(solution)
+    # experiment
+    print("\nStarting experiment with", NUMBER_OF_PUZZLES, "random puzzles ...")
+    puzzles, unsolvable = create_puzzles(NUMBER_OF_PUZZLES, goal, rng)
+    print("Unsolvable states thrown away:", unsolvable)
 
-    # --- experiment ---------------------------------------------------------
-    print(f"\nRunning experiment with {args.n} random states "
-          f"(seed {args.seed}) ...")
-    states, rejected = generate_solvable_states(args.n, goal, rng)
-    records = run_experiment(states, goal, heuristics)
-    mismatches = check_optimality(records, heuristics)
+    results = run_experiment(puzzles, goal, heuristics)
+    print_statistics(results, heuristics)
 
-    summaries = {name: summarize(records, name) for name in heuristics}
-    print_report(summaries, len(states), rejected, mismatches)
-
-    if args.csv:
-        write_csv(records, args.csv)
-        print(f"\nRaw measurements written to {args.csv}")
+    if CSV_FILE is not None:
+        save_csv(results, CSV_FILE)
+        print("\nResults saved in", CSV_FILE)
 
 
 if __name__ == "__main__":
