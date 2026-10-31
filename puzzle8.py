@@ -336,7 +336,7 @@ def main():
     Function: shows one example with its solution, then runs the experiment
               with the random puzzles and prints the statistics
     Input:    - (uses the settings at the top)
-    Output:   - (prints to console, optional csv file)
+    Output:   - (prints to console)
     """
     rng = random.Random(SEED)
     goal = get_goal_state()
