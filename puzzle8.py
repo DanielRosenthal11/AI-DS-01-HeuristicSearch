@@ -24,7 +24,6 @@ Example: (7, 2, 4, 5, 0, 6, 8, 3, 1) means
     8 3 1
 """
 
-import csv
 import heapq
 import random
 import statistics
@@ -33,9 +32,6 @@ import time
 # settings
 NUMBER_OF_PUZZLES = 100
 SEED = 42                  # same seed -> same random puzzles
-EXAMPLE_START = None       # own example, e.g. (7, 2, 4, 5, 0, 6, 8, 3, 1)
-CSV_FILE = "results.csv"   # None = don't save the results
-
 
 # ---------------------------------------------------------------------------
 # 1. Puzzle functions
@@ -331,19 +327,6 @@ def print_statistics(results, heuristics):
         print(f"  solution length: mean = {statistics.mean(moves):10.1f}"
               f"   std = {statistics.stdev(moves):10.1f}")
 
-
-def save_csv(results, filename):
-    """
-    Function: saves all measurements in a csv file (for the diagrams)
-    Input:    results, filename
-    Output:   - (creates the file)
-    """
-    with open(filename, "w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=results[0].keys())
-        writer.writeheader()
-        writer.writerows(results)
-
-
 # ---------------------------------------------------------------------------
 # 6. Main program
 # ---------------------------------------------------------------------------
@@ -363,10 +346,7 @@ def main():
     print_state(goal)
 
     # example puzzle
-    if EXAMPLE_START is not None:
-        example = EXAMPLE_START
-    else:
-        example = create_puzzles(1, goal, rng)[0][0]
+    example = create_puzzles(1, goal, rng)[0][0]
 
     print("\nExample start state:")
     print_state(example)
@@ -389,11 +369,6 @@ def main():
 
     results = run_experiment(puzzles, goal, heuristics)
     print_statistics(results, heuristics)
-
-    if CSV_FILE is not None:
-        save_csv(results, CSV_FILE)
-        print("\nResults saved in", CSV_FILE)
-
 
 if __name__ == "__main__":
     main()
