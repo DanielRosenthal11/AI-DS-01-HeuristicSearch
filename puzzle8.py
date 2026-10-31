@@ -251,7 +251,7 @@ def a_star(start, goal, heuristic):
 
 
 # ---------------------------------------------------------------------------
-# 5. Experiment and statistics
+# 5. Experiment
 # ---------------------------------------------------------------------------
 
 def create_puzzles(n, goal, rng):
@@ -306,6 +306,9 @@ def run_experiment(puzzles, goal, heuristics):
             print(i + 1, "of", len(puzzles), "puzzles solved")
     return results
 
+# ---------------------------------------------------------------------------
+# 6. Statistics
+# ---------------------------------------------------------------------------
 
 def print_statistics(results, heuristics):
     """
@@ -328,7 +331,7 @@ def print_statistics(results, heuristics):
               f"   std = {statistics.stdev(moves):10.1f}")
 
 # ---------------------------------------------------------------------------
-# 6. Main program
+# 7. Main program
 # ---------------------------------------------------------------------------
 
 def main():
