@@ -10,12 +10,12 @@ For both heuristics the number of expanded nodes (memory effort) and the
 run time are measured. At the end mean and standard deviation are printed.
 
 Parts of the program:
-    1. puzzle functions (goal state, moves, printing)
-    2. solvability check
-    3. heuristics
-    4. A* search
-    5. experiment and statistics
-    6. main program
+    * puzzle functions (goal state, moves, printing)
+    * solvability check
+    * heuristics
+    * A* search
+    * experiment and statistics
+    * main program
 
 A state is stored as a tuple with 9 numbers (row by row), 0 is the blank.
 Example: (7, 2, 4, 5, 0, 6, 8, 3, 1) means
@@ -34,7 +34,7 @@ NUMBER_OF_PUZZLES = 100
 SEED = 42                  # same seed -> same random puzzles
 
 # ---------------------------------------------------------------------------
-# 1. Puzzle functions
+# Puzzle functions
 # ---------------------------------------------------------------------------
 
 def get_goal_state():
@@ -126,7 +126,7 @@ def print_solution(path):
 
 
 # ---------------------------------------------------------------------------
-# 2. Solvability check
+# Solvability check
 # ---------------------------------------------------------------------------
 
 def count_inversions(state):
@@ -161,7 +161,7 @@ def is_solvable(state, goal):
 
 
 # ---------------------------------------------------------------------------
-# 3. Heuristics
+# Heuristics
 # ---------------------------------------------------------------------------
 # Both heuristics never overestimate the real number of moves (admissible),
 # so A* finds the optimal solution with both of them.
@@ -197,7 +197,7 @@ def manhattan(state, goal):
 
 
 # ---------------------------------------------------------------------------
-# 4. A* search
+# A* search
 # ---------------------------------------------------------------------------
 
 def a_star(start, goal, heuristic):
@@ -251,7 +251,7 @@ def a_star(start, goal, heuristic):
 
 
 # ---------------------------------------------------------------------------
-# 5. Experiment
+# Experiment
 # ---------------------------------------------------------------------------
 
 def create_puzzles(n, goal, rng):
@@ -307,7 +307,7 @@ def run_experiment(puzzles, goal, heuristics):
     return results
 
 # ---------------------------------------------------------------------------
-# 6. Statistics
+# Statistics
 # ---------------------------------------------------------------------------
 
 def print_statistics(results, heuristics):
@@ -331,7 +331,7 @@ def print_statistics(results, heuristics):
               f"   std = {statistics.stdev(moves):10.1f}")
 
 # ---------------------------------------------------------------------------
-# 7. Main program
+# Main program
 # ---------------------------------------------------------------------------
 
 def main():
